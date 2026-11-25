@@ -101,6 +101,7 @@ function upload(it) {
     const fail = msg => { it.status = 'error'; meta.textContent = msg; meta.classList.add('err'); resolve(); };
     const fd = new FormData();
     fd.append('reqtype', 'fileupload');
+    fd.append('userhash', '');
     fd.append('fileToUpload', it.file, it.file.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/upload');
