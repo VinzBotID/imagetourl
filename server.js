@@ -26,6 +26,7 @@ http.createServer(async (req, res) => {
         headers: {
           'content-type': req.headers['content-type'],
           'content-length': String(len),
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
         },
         body: req,
         duplex: 'half',
