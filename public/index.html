@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catbox Uploader</title>
+<style>
+:root{--bg:#eef2f1;--panel:#fff;--ink:#14231f;--muted:#5d6e69;--line:#cfdad6;--accent:#0f766e;--accent-ink:#fff;--err:#b42318}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a18;--panel:#162522;--ink:#e6f0ed;--muted:#91a59f;--line:#2a3d39;--accent:#2dd4bf;--accent-ink:#06201c;--err:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Trebuchet MS","Segoe UI",system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center;padding:32px 16px}
+main{width:100%;max-width:640px}
+h1{font-size:1.9rem;margin:0 0 4px;letter-spacing:-.02em}
+.sub{color:var(--muted);margin:0 0 24px}
+#drop{background:var(--panel);border:2px dashed var(--line);border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop.over,#drop:focus-visible{border-color:var(--accent);outline:none}
+#drop strong{display:block;font-size:1.1rem}
+#drop span{color:var(--muted);font-size:.9rem}
+.actions{display:flex;gap:10px;margin:16px 0}
+button{font:inherit;border:0;border-radius:10px;padding:11px 18px;cursor:pointer;background:var(--accent);color:var(--accent-ink);font-weight:600}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+li{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center}
+.thumb{width:56px;height:56px;border-radius:8px;background:var(--bg);object-fit:cover;display:grid;place-items:center;color:var(--muted);font-size:.7rem}
+.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{font-size:.85rem;color:var(--muted)}
+.meta.err{color:var(--err)}
+.bar{height:5px;background:var(--bg);border-radius:3px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .1s}
+.link{display:flex;gap:8px;margin-top:6px}
+.link input{flex:1;min-width:0;font:inherit;font-size:.9rem;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.link button{padding:6px 12px;font-size:.85rem}
+.rm{background:none;color:var(--muted);padding:4px 8px;font-size:1.2rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Catbox Uploader</h1>
+  <p class="sub">Pilih foto atau video, klik Generate, dan link Catbox langsung siap dipakai.</p>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Pilih file">
+    <strong>Tarik file ke sini atau klik untuk memilih</strong>
+    <span>Foto & video, maks 200 MB per file. Bisa pilih banyak sekaligus.</span>
+  </div>
+  <input id="file" type="file" accept="image/*,video/*" multiple hidden>
+
+  <div class="actions">
+    <button id="go" disabled>Generate link</button>
+    <button id="copyAll" class="ghost" disabled>Salin semua link</button>
+    <button id="clear" class="ghost" disabled>Kosongkan</button>
+  </div>
+  <ul id="list"></ul>
+</main>
+
+<script>
+const MAX = 200 * 1024 * 1024;
+const $ = id => document.getElementById(id);
+const drop = $('drop'), input = $('file'), list = $('list');
+let items = []; // {file, li, url, status}
+
+drop.onclick = () => input.click();
+drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } };
+['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => add(e.dataTransfer.files));
+input.onchange = () => { add(input.files); input.value = ''; };
+document.addEventListener('paste', e => { if (e.clipboardData.files.length) add(e.clipboardData.files); });
+
+const fmt = b => b > 1048576 ? (b/1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b/1024)) + ' KB';
+
+function add(files) {
+  for (const file of files) {
+    if (!/^(image|video)\//.test(file.type)) continue;
+    const li = document.createElement('li');
+    const thumb = file.type.startsWith('image/')
+      ? `<img class="thumb" src="${URL.createObjectURL(file)}" alt="">`
+      : `<div class="thumb">video</div>`;
+    li.innerHTML = `${thumb}<div><div class="name"></div><div class="meta"></div><div class="bar"><i></i></div></div><button class="rm" title="Hapus" aria-label="Hapus">×</button>`;
+    li.querySelector('.name').textContent = file.name;
+    const it = { file, li, url: null, status: 'wait' };
+    const meta = li.querySelector('.meta');
+    if (file.size > MAX) { it.status = 'error'; meta.textContent = 'Terlalu besar, maks 200 MB'; meta.classList.add('err'); }
+    else meta.textContent = fmt(file.size) + ' · siap diupload';
+    li.querySelector('.rm').onclick = () => { items = items.filter(x => x !== it); li.remove(); sync(); };
+    items.push(it); list.appendChild(li);
+  }
+  sync();
+}
+
+function sync() {
+  $('go').disabled = !items.some(i => i.status === 'wait');
+  $('copyAll').disabled = !items.some(i => i.url);
+  $('clear').disabled = !items.length;
+}
+
+function upload(it) {
+  return new Promise(resolve => {
+    const meta = it.li.querySelector('.meta'), bar = it.li.querySelector('.bar i');
+    const fail = msg => { it.status = 'error'; meta.textContent = msg; meta.classList.add('err'); resolve(); };
+    const fd = new FormData();
+    fd.append('reqtype', 'fileupload');
+    fd.append('userhash', '');
+    fd.append('fileToUpload', it.file, it.file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const p = Math.round(e.loaded / e.total * 100);
+      bar.style.width = p + '%'; meta.textContent = 'Mengupload… ' + p + '%';
+    };
+    xhr.onerror = () => fail('Koneksi gagal, coba lagi.');
+    xhr.onload = () => {
+      const t = (xhr.responseText || '').trim();
+      if (xhr.status !== 200 || !/^https?:\/\//.test(t)) return fail(t || 'Upload gagal.');
+      it.url = t; it.status = 'done';
+      bar.parentElement.remove(); meta.textContent = fmt(it.file.size) + ' · berhasil';
+      const box = document.createElement('div'); box.className = 'link';
+      box.innerHTML = `<input readonly><button>Salin</button>`;
+      const inp = box.querySelector('input'); inp.value = t; inp.onclick = () => inp.select();
+      box.querySelector('button').onclick = e => copy(t, e.target);
+      meta.after(box); resolve();
+    };
+    xhr.send(fd);
+  });
+}
+
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); } catch { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
+  if (btn) { const o = btn.textContent; btn.textContent = 'Tersalin'; setTimeout(() => btn.textContent = o, 1200); }
+}
+
+$('go').onclick = async () => {
+  $('go').disabled = true;
+  const queue = items.filter(i => i.status === 'wait');
+  queue.forEach(i => i.status = 'busy');
+  await Promise.all(queue.map(upload)); // paralel
+  sync();
+};
+$('copyAll').onclick = e => copy(items.filter(i => i.url).map(i => i.url).join('\n'), e.target);
+$('clear').onclick = () => { items = []; list.innerHTML = ''; sync(); };
+</script>
+</body>
+</html>
